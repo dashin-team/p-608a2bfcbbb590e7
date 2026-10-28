@@ -1,0 +1,109 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>保單健檢</title><style>
+body{margin:0;font-family:system-ui,"PingFang TC","Noto Sans TC",sans-serif;font-size:17px;background:#f3f6fa;color:#1d2b3a}
+.w{max-width:560px;margin:0 auto;padding:24px 18px}h1{font-size:26px;color:#0b4f8a;margin:0 0 12px}
+.w.wide{max-width:min(1400px,96vw)}
+input,button{font-size:17px;width:100%;box-sizing:border-box;padding:12px;margin:8px 0;border-radius:10px;border:1px solid #b9c6d4}
+button{background:#0b4f8a;color:#fff;border:0;cursor:pointer}button.s{background:#fff;color:#0b4f8a;border:1px solid #0b4f8a}
+.card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 4px #0002;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .nm{font-size:18px;font-weight:700;line-height:1.25;word-break:break-word}
+.card .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.card .row button{width:auto;flex:1;min-width:72px;padding:10px;margin:0;font-size:14px}
+#err{color:#c0392b}
+footer{text-align:center;color:#667;font-size:15px;padding:20px}
+#v{position:fixed;inset:0;background:#fff;display:none;flex-direction:column;z-index:9}
+#v iframe{flex:1;border:0;width:100%}
+#bar{display:flex;gap:6px;padding:8px;background:#0b4f8a;flex-wrap:wrap}
+#bar button{margin:0;padding:10px;width:auto;flex:1;min-width:90px;font-size:15px}
+.note{font-size:13px;color:#667;margin-top:8px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0 14px}
+.toolbar input#q{flex:1;min-width:160px;margin:0}
+.toolbar .tog{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.toolbar .tog button{width:auto;margin:0;padding:8px 12px;font-size:14px}
+.toolbar .tog button.on{background:#0b4f8a;color:#fff}
+.toolbar .tog button:not(.on){background:#fff;color:#0b4f8a;border:1px solid #0b4f8a}
+#list{display:grid;gap:12px;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr))}
+@media (max-width:900px){#list{--cols:3 !important}}
+@media (max-width:640px){#list{--cols:2 !important}}
+#empty{color:#667;padding:20px 0;display:none}
+</style></head><body>
+<div class="w" id="L"><h1>保單健檢報告</h1><div class="card"><label>帳號<input id="a" autocomplete="username"></label>
+<label>密碼<input id="p" type="password" autocomplete="current-password"></label><button id="go">登入</button><div id="err"></div></div></div>
+<div class="w wide" id="C" style="display:none"><h1>客戶列表</h1>
+<div class="toolbar">
+<input id="q" type="search" placeholder="搜尋姓名或生日…" autocomplete="off">
+<div class="tog"><span style="font-size:13px;color:#556">每列</span>
+<button type="button" id="c5">5</button>
+<button type="button" id="c10">10</button>
+</div>
+</div>
+<div id="list"></div>
+<div id="empty">找不到符合的客戶</div>
+<p class="note">在報告裡改的數字只存在這個瀏覽器／裝置，不會自動同步到其他人。按「還原」可回到建置時的原始值。</p>
+<button class="s" id="out">登出</button></div>
+<div id="v"><div id="bar">
+<button class="s" id="back">← 返回</button>
+<button id="vdl">下載原始 PDF</button>
+<button class="s" id="vprint">下載目前版本</button>
+<button class="s" id="vrest">還原</button>
+</div><iframe id="fr"></iframe></div>
+<footer>服務人員 梁仕翰<br>僅供參考，以保單條款為準</footer>
+<script>
+let K,M,cur;const $=id=>document.getElementById(id),b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const COLS_KEY='policy-list-cols';
+function applyCols(n){
+  n=(n===10)?10:5; document.documentElement.style.setProperty('--cols', n);
+  $('c5').classList.toggle('on', n===5); $('c10').classList.toggle('on', n===10);
+  try{localStorage.setItem(COLS_KEY, String(n));}catch(e){}
+}
+function filterList(){
+  const q=($('q').value||'').trim().toLowerCase();
+  let shown=0;
+  document.querySelectorAll('#list .card').forEach(d=>{
+    const hay=(d.dataset.hay||'');
+    const ok=!q || hay.includes(q);
+    d.style.display=ok?'':'none';
+    if(ok) shown++;
+  });
+  $('empty').style.display=shown? 'none':'block';
+}
+async function dk(acc,pw){const cfg=await (await fetch('cfg.json',{cache:'no-store'})).json();
+ const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(acc+'\n'+pw),'PBKDF2',false,['deriveKey']);
+ return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(cfg.salt),iterations:cfg.it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},true,['decrypt']);}
+async function dec(path){const b=new Uint8Array(await (await fetch(path,{cache:'no-store'})).arrayBuffer());
+ return crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(0,12)},K,b.slice(12));}
+async function enter(){M=JSON.parse(new TextDecoder().decode(await dec('d/m.bin')));$('L').style.display='none';$('C').style.display='block';
+ $('list').innerHTML='';
+ M.forEach((c,i)=>{
+  const d=document.createElement('div');d.className='card';
+  const hay=((c.name||'')+' '+(c.birth||'')+' '+(c.birthday||'')+' '+(c.roc||'')+' '+(c.id||'')).toLowerCase();
+  d.dataset.hay=hay; d.dataset.i=i;
+  d.innerHTML='<div class="nm"></div><div class="row"><button>檢視</button><button class="s">PDF</button></div>';
+  d.querySelector('.nm').textContent=c.name;
+  const bs=d.querySelectorAll('button');bs[0].onclick=()=>view(i);bs[1].onclick=()=>dl(i);
+  $('list').appendChild(d);
+ });
+ try{applyCols(parseInt(localStorage.getItem(COLS_KEY)||'5',10));}catch(e){applyCols(5);}
+ filterList();
+}
+async function view(i){cur=i;let h=new TextDecoder().decode(await dec('d/'+M[i].f+'h.bin'));
+ h=h.replace(/href="[^"]*\.pdf"/g,'href="#" data-orig-pdf="1"');
+ $('fr').srcdoc=h;$('v').style.display='flex';
+ $('fr').onload=()=>{try{
+   const doc=$('fr').contentDocument;
+   doc.querySelectorAll('[data-orig-pdf],#btn-dl-orig').forEach(a=>{a.onclick=e=>{e.preventDefault();dl(cur);};});
+ }catch(e){}};}
+async function dl(i){const u=URL.createObjectURL(new Blob([await dec('d/'+M[i].f+'p.bin')],{type:'application/pdf'}));
+ const a=document.createElement('a');a.href=u;a.download=M[i].pdfName;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);}
+$('back').onclick=()=>{$('v').style.display='none';$('fr').srcdoc='';};
+$('vdl').onclick=()=>dl(cur);
+$('vprint').onclick=()=>{try{$('fr').contentWindow.__policyPrint?$('fr').contentWindow.__policyPrint():$('fr').contentWindow.print();}catch(e){$('fr').contentWindow.print();}};
+$('vrest').onclick=()=>{try{if($('fr').contentWindow.__policyRestore)$('fr').contentWindow.__policyRestore();else{const k='policy-edit:'+M[cur].name;localStorage.removeItem(k);localStorage.removeItem('policy-size:'+M[cur].name);view(cur);}}catch(e){view(cur);}};
+$('go').onclick=async()=>{$('err').textContent='驗證中…';try{K=await dk($('a').value.trim(),$('p').value);await enter();
+ sessionStorage.k=JSON.stringify(await crypto.subtle.exportKey('jwk',K));$('err').textContent='';}catch(e){$('err').textContent='帳號或密碼錯誤';}};
+$('p').onkeydown=e=>{if(e.key==='Enter')$('go').click()};
+$('out').onclick=()=>{sessionStorage.clear();location.reload()};
+$('c5').onclick=()=>applyCols(5);$('c10').onclick=()=>applyCols(10);
+$('q').oninput=filterList;
+(async()=>{if(sessionStorage.k){try{K=await crypto.subtle.importKey('jwk',JSON.parse(sessionStorage.k),'AES-GCM',false,['decrypt']);await enter();}catch(e){sessionStorage.clear()}}})();
+</script></body></html>
